@@ -205,3 +205,30 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ===== NeuroScov Bot Specific =====
+
+# Configuration (contains API keys!)
+.env
+
+# Database
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Telethon session files (contains auth data!)
+*.session
+*.session-journal
+
+# Temporary files
+temp/
+tmp/
+
+# Generated images
+images/
+generated/
