@@ -89,18 +89,43 @@ class TelegramPoster:
 
             logger.info(f"Отправка сообщения в канал {self.config.target_channel_id}...")
 
-            message = await self.bot.send_message(
-                chat_id=self.config.target_channel_id,
-                text=message_text,
-                parse_mode=parse_mode,
-                disable_web_page_preview=False
-            )
+            try:
+                message = await self.bot.send_message(
+                    chat_id=self.config.target_channel_id,
+                    text=message_text,
+                    parse_mode=parse_mode,
+                    disable_web_page_preview=False
+                )
 
-            logger.info(f"✅ Сообщение успешно отправлено (ID: {message.message_id})")
-            return message.message_id
+                logger.info(f"✅ Сообщение успешно отправлено (ID: {message.message_id})")
+                return message.message_id
+
+            except TelegramError as e:
+                # Проверяем, является ли это ошибкой парсинга Markdown
+                error_msg = str(e).lower()
+                if "can't parse entities" in error_msg or "parse" in error_msg:
+                    logger.warning(f"⚠️ Ошибка парсинга MarkdownV2: {e}")
+                    logger.info("Повторная попытка отправки без форматирования...")
+
+                    # Повторная попытка без Markdown
+                    message = await self.bot.send_message(
+                        chat_id=self.config.target_channel_id,
+                        text=text,  # Оригинальный текст без обработки
+                        parse_mode=None,
+                        disable_web_page_preview=False
+                    )
+
+                    logger.info(f"✅ Сообщение отправлено без форматирования (ID: {message.message_id})")
+                    return message.message_id
+                else:
+                    # Другие ошибки пробрасываем
+                    raise e
 
         except TelegramError as e:
-            logger.error(f"Ошибка отправки сообщения в Telegram: {e}")
+            logger.error(f"❌ Ошибка отправки сообщения в Telegram: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Неожиданная ошибка: {e}")
             return None
 
     async def send_photo_with_caption(
@@ -128,22 +153,48 @@ class TelegramPoster:
 
             logger.info(f"Отправка фото с подписью в канал {self.config.target_channel_id}...")
 
-            with open(photo_path, 'rb') as photo:
-                message = await self.bot.send_photo(
-                    chat_id=self.config.target_channel_id,
-                    photo=photo,
-                    caption=caption_text,
-                    parse_mode=parse_mode
-                )
+            try:
+                with open(photo_path, 'rb') as photo:
+                    message = await self.bot.send_photo(
+                        chat_id=self.config.target_channel_id,
+                        photo=photo,
+                        caption=caption_text,
+                        parse_mode=parse_mode
+                    )
 
-            logger.info(f"✅ Фото успешно отправлено (ID: {message.message_id})")
-            return message.message_id
+                logger.info(f"✅ Фото успешно отправлено (ID: {message.message_id})")
+                return message.message_id
+
+            except TelegramError as e:
+                # Проверяем, является ли это ошибкой парсинга Markdown
+                error_msg = str(e).lower()
+                if "can't parse entities" in error_msg or "parse" in error_msg:
+                    logger.warning(f"⚠️ Ошибка парсинга MarkdownV2 в подписи: {e}")
+                    logger.info("Повторная попытка отправки без форматирования...")
+
+                    # Повторная попытка без Markdown
+                    with open(photo_path, 'rb') as photo:
+                        message = await self.bot.send_photo(
+                            chat_id=self.config.target_channel_id,
+                            photo=photo,
+                            caption=caption,  # Оригинальный текст без обработки
+                            parse_mode=None
+                        )
+
+                    logger.info(f"✅ Фото отправлено без форматирования подписи (ID: {message.message_id})")
+                    return message.message_id
+                else:
+                    # Другие ошибки пробрасываем
+                    raise e
 
         except FileNotFoundError:
-            logger.error(f"Файл изображения не найден: {photo_path}")
+            logger.error(f"❌ Файл изображения не найден: {photo_path}")
             return None
         except TelegramError as e:
-            logger.error(f"Ошибка отправки фото в Telegram: {e}")
+            logger.error(f"❌ Ошибка отправки фото в Telegram: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"❌ Неожиданная ошибка: {e}")
             return None
 
     async def publish_post(

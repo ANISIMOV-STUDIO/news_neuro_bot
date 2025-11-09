@@ -84,7 +84,7 @@ class GeminiProcessor:
 
     def generate_image(self, prompt_text: str, output_path: Optional[str] = None) -> Optional[str]:
         """
-        Генерация изображения через Gemini
+        Генерация изображения через Gemini/Imagen
 
         Args:
             prompt_text: Описание того, что должно быть на картинке
@@ -97,22 +97,112 @@ class GeminiProcessor:
             # Формируем промпт для генерации изображения
             image_prompt = self.config.image_prompt_template.format(topic=prompt_text)
 
-            logger.info("Отправка запроса на генерацию изображения в Gemini...")
+            logger.info("Отправка запроса на генерацию изображения...")
             logger.debug(f"Промпт для изображения: {image_prompt[:200]}...")
 
-            # ВАЖНО: Gemini 2.0 Flash пока не поддерживает генерацию изображений напрямую
-            # Это заглушка для будущей реализации или интеграции с другими сервисами
-            # Можно использовать Imagen 3 или другие модели Google
+            # Определяем путь для сохранения
+            if not output_path:
+                os.makedirs('./temp_images', exist_ok=True)
+                output_path = f'./temp_images/generated_{int(asyncio.get_event_loop().time())}.png'
 
-            # Пока возвращаем None, указывая что изображение не сгенерировано
-            logger.warning("Генерация изображений через Gemini пока не реализована")
-            logger.info("Рекомендация: интегрировать Imagen 3 или DALL-E для генерации")
+            # Попытка генерации через Imagen API
+            try:
+                # Используем модель для генерации изображения
+                response = self.image_model.generate_content(
+                    image_prompt,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.8,
+                    )
+                )
 
-            return None
+                # Проверяем, есть ли в ответе изображение
+                if hasattr(response, '_result') and hasattr(response._result, 'candidates'):
+                    for part in response._result.candidates[0].content.parts:
+                        if hasattr(part, 'inline_data') and part.inline_data:
+                            # Сохраняем изображение из inline_data
+                            image_data = part.inline_data.data
+                            with open(output_path, 'wb') as f:
+                                f.write(image_data)
+
+                            logger.info(f"✅ Изображение сгенерировано и сохранено: {output_path}")
+                            return output_path
+
+                logger.warning("API не вернул изображение, создаю placeholder...")
+
+            except Exception as api_error:
+                logger.warning(f"Ошибка API генерации изображений: {api_error}")
+                logger.info("Создаю placeholder изображение...")
+
+            # Fallback: создаем placeholder изображение с PIL
+            return self._create_placeholder_image(prompt_text, output_path)
 
         except Exception as e:
-            logger.error(f"Ошибка генерации изображения: {e}")
+            logger.error(f"Критическая ошибка генерации изображения: {e}")
             return None
+
+    def _create_placeholder_image(self, prompt_text: str, output_path: str) -> str:
+        """
+        Создание placeholder изображения с текстом
+
+        Args:
+            prompt_text: Текст для отображения
+            output_path: Путь для сохранения
+
+        Returns:
+            str: Путь к созданному изображению
+        """
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+
+            # Создаем изображение в стиле киберпанк
+            width, height = 1200, 630
+
+            # Градиент от темно-синего к фиолетовому
+            img = Image.new('RGB', (width, height), color='#0a0e27')
+            draw = ImageDraw.Draw(img)
+
+            # Добавляем градиент
+            for y in range(height):
+                color_value = int(10 + (y / height) * 40)
+                draw.rectangle([(0, y), (width, y+1)], fill=(color_value, color_value//2, color_value*2))
+
+            # Добавляем текст
+            text = "🤖 NeuroScov Bot"
+            subtitle = prompt_text[:80] + "..." if len(prompt_text) > 80 else prompt_text
+
+            # Используем дефолтный шрифт
+            try:
+                # Пытаемся использовать системный шрифт
+                font_large = ImageFont.truetype("/system/fonts/Roboto-Bold.ttf", 60)
+                font_small = ImageFont.truetype("/system/fonts/Roboto-Regular.ttf", 30)
+            except:
+                # Fallback на дефолтный
+                font_large = ImageFont.load_default()
+                font_small = ImageFont.load_default()
+
+            # Рисуем текст по центру
+            bbox = draw.textbbox((0, 0), text, font=font_large)
+            text_width = bbox[2] - bbox[0]
+            text_x = (width - text_width) // 2
+
+            # Основной заголовок
+            draw.text((text_x, height//2 - 80), text, fill='#00ffff', font=font_large)
+
+            # Подзаголовок
+            bbox_sub = draw.textbbox((0, 0), subtitle, font=font_small)
+            sub_width = bbox_sub[2] - bbox_sub[0]
+            sub_x = (width - sub_width) // 2
+            draw.text((sub_x, height//2 + 20), subtitle, fill='#ff00ff', font=font_small)
+
+            # Сохраняем
+            img.save(output_path, 'PNG')
+            logger.info(f"✅ Placeholder изображение создано: {output_path}")
+
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Ошибка создания placeholder: {e}")
+            raise
 
     def generate_image_prompt(self, text: str) -> str:
         """
@@ -210,8 +300,12 @@ class GeminiProcessor:
         # Рерайтинг текста
         rewritten_text = self.rewrite_text(full_text)
 
-        # Генерация промпта для изображения (для будущего использования)
+        # Генерация промпта для изображения
         image_prompt = self.generate_image_prompt(rewritten_text)
+
+        # Генерация изображения
+        logger.info("Генерация изображения для поста...")
+        image_path = self.generate_image(image_prompt)
 
         # Извлекаем краткую суть (для метаданных)
         summary = self.extract_summary(rewritten_text, max_length=150)
@@ -220,10 +314,10 @@ class GeminiProcessor:
             'rewritten_text': rewritten_text,
             'image_prompt': image_prompt,
             'summary': summary,
-            'image_path': None  # Пока изображения не генерируются
+            'image_path': image_path  # Теперь реально генерируется
         }
 
-        logger.info("Пост успешно обработан")
+        logger.info(f"Пост успешно обработан (изображение: {'✅' if image_path else '❌'})")
         return result
 
 
